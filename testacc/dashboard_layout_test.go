@@ -365,6 +365,94 @@ resource "posthog_dashboard_layout" "test" {
 `, name)
 }
 
+// TestDashboardLayout_Color tests the full lifecycle of the color field on a
+// dashboard layout tile: set, change, remove, re-add.
+func TestDashboardLayout_Color(t *testing.T) {
+	skipIfNotAcceptance(t)
+	rName := acctest.RandomWithPrefix("tf-acc-test")
+	resource.Test(t, resource.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			// Step 1: Create with color = "blue"
+			{
+				Config: testAccDashboardLayoutInsightWithColor(rName, "blue"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("posthog_dashboard_layout.test", "tiles.0.color", "blue"),
+				),
+			},
+			// Step 2: Change color to "green"
+			{
+				Config: testAccDashboardLayoutInsightWithColor(rName, "green"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("posthog_dashboard_layout.test", "tiles.0.color", "green"),
+				),
+			},
+			// Step 3: Remove color (omit from config)
+			{
+				Config: testAccDashboardLayoutSingleInsight(rName),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckNoResourceAttr("posthog_dashboard_layout.test", "tiles.0.color"),
+				),
+			},
+			// Step 4: Re-add color "purple"
+			{
+				Config: testAccDashboardLayoutInsightWithColor(rName, "purple"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("posthog_dashboard_layout.test", "tiles.0.color", "purple"),
+				),
+			},
+		},
+	})
+}
+
+
+
+// testAccDashboardLayoutInsightWithColor returns HCL for a dashboard + insight + layout
+// with a single insight tile that has the given color set.
+func testAccDashboardLayoutInsightWithColor(name, color string) string {
+	return fmt.Sprintf(`
+provider "posthog" {}
+
+resource "posthog_dashboard" "test" {
+  name = %[1]q
+}
+
+resource "posthog_insight" "test" {
+  name = "%[1]s-insight"
+
+  query_json = jsonencode({
+    kind   = "InsightVizNode"
+    source = {
+      kind   = "TrendsQuery"
+      series = [{
+        kind  = "EventsNode"
+        event = "$pageview"
+        math  = "total"
+      }]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.test.id]
+  depends_on    = [posthog_dashboard.test]
+}
+
+resource "posthog_dashboard_layout" "test" {
+  dashboard_id = posthog_dashboard.test.id
+
+  tiles = [
+    {
+      insight_id   = posthog_insight.test.id
+      color        = %[2]q
+      layouts_json = jsonencode({ sm = { x = 0, y = 0, w = 6, h = 4 } })
+    },
+  ]
+
+  depends_on = [posthog_insight.test]
+}
+`, name, color)
+}
+
 // testAccDashboardLayoutUpdatedPosition returns HCL for the same layout as
 // testAccDashboardLayoutInsightAndText but with the insight tile moved to x=6
 // (shifted right).
