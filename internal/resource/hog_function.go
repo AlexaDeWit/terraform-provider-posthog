@@ -28,19 +28,19 @@ func NewHogFunction() resource.Resource {
 type HogFunctionResourceTFModel struct {
 	core.BaseStringIdentifiable
 	core.BaseProjectID
-	Type               types.String `tfsdk:"type"`
-	Name               types.String `tfsdk:"name"`
-	Description        types.String `tfsdk:"description"`
-	Enabled            types.Bool   `tfsdk:"enabled"`
-	Hog                types.String `tfsdk:"hog"`
-	InputsJSON         types.String `tfsdk:"inputs_json"`
+	Type                types.String `tfsdk:"type"`
+	Name                types.String `tfsdk:"name"`
+	Description         types.String `tfsdk:"description"`
+	Enabled             types.Bool   `tfsdk:"enabled"`
+	Hog                 types.String `tfsdk:"hog"`
+	InputsJSON          types.String `tfsdk:"inputs_json"`
 	SensitiveInputsJSON types.String `tfsdk:"sensitive_inputs_json"`
-	FiltersJSON        types.String `tfsdk:"filters_json"`
-	MaskingJSON        types.String `tfsdk:"masking_json"`
-	MappingsJSON       types.String `tfsdk:"mappings_json"`
-	IconURL            types.String `tfsdk:"icon_url"`
-	TemplateID         types.String `tfsdk:"template_id"`
-	ExecutionOrder     types.Int64  `tfsdk:"execution_order"`
+	FiltersJSON         types.String `tfsdk:"filters_json"`
+	MaskingJSON         types.String `tfsdk:"masking_json"`
+	MappingsJSON        types.String `tfsdk:"mappings_json"`
+	IconURL             types.String `tfsdk:"icon_url"`
+	TemplateID          types.String `tfsdk:"template_id"`
+	ExecutionOrder      types.Int64  `tfsdk:"execution_order"`
 }
 
 type HogFunctionOps struct{}
@@ -302,12 +302,14 @@ func (o HogFunctionOps) MapResponseToModel(ctx context.Context, resp httpclient.
 	// Strip server-computed fields (bytecode, order) from each input
 	if len(resp.Inputs) > 0 {
 		// inputs_json: filter to only keys the user specified in inputs_json
-		normalized, err := normalizeJSONStripServerFields(resp.Inputs, model.InputsJSON.ValueString())
-		if err != nil {
-			diags.AddError("Failed to normalize inputs", err.Error())
-			return diags
+		if !model.InputsJSON.IsNull() {
+			normalized, err := normalizeJSONStripServerFields(resp.Inputs, model.InputsJSON.ValueString())
+			if err != nil {
+				diags.AddError("Failed to normalize inputs", err.Error())
+				return diags
+			}
+			model.InputsJSON = types.StringValue(normalized)
 		}
-		model.InputsJSON = types.StringValue(normalized)
 
 		// sensitive_inputs_json: filter to only keys the user specified in sensitive_inputs_json
 		if !model.SensitiveInputsJSON.IsNull() {
@@ -318,8 +320,10 @@ func (o HogFunctionOps) MapResponseToModel(ctx context.Context, resp httpclient.
 			}
 			model.SensitiveInputsJSON = types.StringValue(sensitiveNormalized)
 		}
-	} else if !model.InputsJSON.IsNull() {
-		model.InputsJSON = types.StringValue("{}")
+	} else {
+		if !model.InputsJSON.IsNull() {
+			model.InputsJSON = types.StringValue("{}")
+		}
 		if !model.SensitiveInputsJSON.IsNull() {
 			model.SensitiveInputsJSON = types.StringValue("{}")
 		}

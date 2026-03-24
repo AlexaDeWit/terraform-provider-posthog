@@ -110,6 +110,7 @@ func TestMapResponseToModel_SplitsInputsBack(t *testing.T) {
 		respInputs            map[string]interface{}
 		expectedInputs        string
 		expectedSensitive     string
+		expectInputsIsNull    bool
 		expectSensitiveIsNull bool
 	}{
 		"splits keys to original fields": {
@@ -141,6 +142,22 @@ func TestMapResponseToModel_SplitsInputsBack(t *testing.T) {
 			expectedInputs:    `{"url":{"value":"https://example.com"}}`,
 			expectedSensitive: `{"api_key":{"value":"secret"}}`,
 		},
+		"only sensitive_inputs_json set - must not leak into inputs_json": {
+			inputsJSON:          types.StringNull(),
+			sensitiveInputsJSON: types.StringValue(`{"api_key":{"value":"secret123"}}`),
+			respInputs: map[string]interface{}{
+				"api_key": map[string]interface{}{"value": "secret123"},
+			},
+			expectInputsIsNull: true,
+			expectedSensitive:  `{"api_key":{"value":"secret123"}}`,
+		},
+		"empty resp.Inputs with only sensitive_inputs_json zeroes sensitive field": {
+			inputsJSON:          types.StringNull(),
+			sensitiveInputsJSON: types.StringValue(`{"api_key":{"value":"secret123"}}`),
+			respInputs:          map[string]interface{}{},
+			expectInputsIsNull:  true,
+			expectedSensitive:   `{}`,
+		},
 	}
 
 	ops := HogFunctionOps{}
@@ -160,7 +177,11 @@ func TestMapResponseToModel_SplitsInputsBack(t *testing.T) {
 			diags := ops.MapResponseToModel(ctx, resp, model)
 			require.False(t, diags.HasError(), "unexpected error: %v", diags)
 
-			assert.Equal(t, tc.expectedInputs, model.InputsJSON.ValueString())
+			if tc.expectInputsIsNull {
+				assert.True(t, model.InputsJSON.IsNull(), "inputs_json should remain null, got: %s", model.InputsJSON.ValueString())
+			} else {
+				assert.Equal(t, tc.expectedInputs, model.InputsJSON.ValueString())
+			}
 
 			if tc.expectSensitiveIsNull {
 				assert.True(t, model.SensitiveInputsJSON.IsNull())
@@ -169,6 +190,47 @@ func TestMapResponseToModel_SplitsInputsBack(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildUpdateRequest_SensitiveInputs(t *testing.T) {
+	ctx := context.Background()
+	ops := HogFunctionOps{}
+
+	t.Run("removing sensitive_inputs_json excludes sensitive keys from request", func(t *testing.T) {
+		plan := HogFunctionResourceTFModel{
+			InputsJSON:          types.StringValue(`{"url":{"value":"https://example.com"}}`),
+			SensitiveInputsJSON: types.StringNull(), // user removed sensitive_inputs_json
+		}
+		state := HogFunctionResourceTFModel{
+			InputsJSON:          types.StringValue(`{"url":{"value":"https://example.com"}}`),
+			SensitiveInputsJSON: types.StringValue(`{"api_key":{"value":"secret123"}}`),
+		}
+
+		req, diags := ops.BuildUpdateRequest(ctx, plan, state)
+		require.False(t, diags.HasError(), "unexpected error: %v", diags)
+
+		assert.Contains(t, req.Inputs, "url", "url should be in inputs")
+		assert.NotContains(t, req.Inputs, "api_key", "api_key should NOT be in inputs after removing sensitive_inputs_json")
+	})
+
+	t.Run("updating sensitive_inputs_json merges correctly", func(t *testing.T) {
+		plan := HogFunctionResourceTFModel{
+			InputsJSON:          types.StringValue(`{"url":{"value":"https://example.com"}}`),
+			SensitiveInputsJSON: types.StringValue(`{"api_key":{"value":"new_secret"}}`),
+		}
+		state := HogFunctionResourceTFModel{
+			InputsJSON:          types.StringValue(`{"url":{"value":"https://example.com"}}`),
+			SensitiveInputsJSON: types.StringValue(`{"api_key":{"value":"old_secret"}}`),
+		}
+
+		req, diags := ops.BuildUpdateRequest(ctx, plan, state)
+		require.False(t, diags.HasError(), "unexpected error: %v", diags)
+
+		assert.Contains(t, req.Inputs, "url")
+		assert.Contains(t, req.Inputs, "api_key")
+		apiKey := req.Inputs["api_key"].(map[string]interface{})
+		assert.Equal(t, "new_secret", apiKey["value"], "should use the new secret value")
+	})
 }
 
 func TestStripServerFields(t *testing.T) {
