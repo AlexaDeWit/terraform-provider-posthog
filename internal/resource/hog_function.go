@@ -309,6 +309,14 @@ func (o HogFunctionOps) MapResponseToModel(ctx context.Context, resp httpclient.
 				return diags
 			}
 			model.InputsJSON = types.StringValue(normalized)
+		} else if model.SensitiveInputsJSON.IsNull() {
+			// Import case: both fields are null, populate inputs_json with all API inputs
+			normalized, err := normalizeJSONStripServerFields(resp.Inputs, "")
+			if err != nil {
+				diags.AddError("Failed to normalize inputs", err.Error())
+				return diags
+			}
+			model.InputsJSON = types.StringValue(normalized)
 		}
 
 		// sensitive_inputs_json: filter to only keys the user specified in sensitive_inputs_json

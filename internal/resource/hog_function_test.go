@@ -158,6 +158,25 @@ func TestMapResponseToModel_SplitsInputsBack(t *testing.T) {
 			expectInputsIsNull:  true,
 			expectedSensitive:   `{}`,
 		},
+		"import: both fields null populates inputs_json with all API inputs": {
+			inputsJSON:          types.StringNull(),
+			sensitiveInputsJSON: types.StringNull(),
+			respInputs: map[string]interface{}{
+				"url":     map[string]interface{}{"value": "https://example.com"},
+				"api_key": map[string]interface{}{"value": "secret123"},
+			},
+			expectedInputs:        `{"api_key":{"value":"secret123"},"url":{"value":"https://example.com"}}`,
+			expectSensitiveIsNull: true,
+		},
+		"duplicate key in both fields appears in both after read": {
+			inputsJSON:          types.StringValue(`{"shared_key":{"value":"from_inputs"}}`),
+			sensitiveInputsJSON: types.StringValue(`{"shared_key":{"value":"from_sensitive"}}`),
+			respInputs: map[string]interface{}{
+				"shared_key": map[string]interface{}{"value": "api_value"},
+			},
+			expectedInputs:    `{"shared_key":{"value":"api_value"}}`,
+			expectedSensitive: `{"shared_key":{"value":"api_value"}}`,
+		},
 	}
 
 	ops := HogFunctionOps{}
